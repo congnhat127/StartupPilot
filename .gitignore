@@ -1,0 +1,21 @@
+# Thảo luận thiết kế của Agent (Theo yêu cầu người dùng)
+architecture.md
+
+# Biến môi trường bảo mật
+.env
+
+# Python caching
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+.ipynb_checkpoints/
+
+# Thư mục môi trường ảo
+.venv/
+venv/
+ENV/
+env/
+
+# Dữ liệu vector DB cục bộ
+data/vector_db/
