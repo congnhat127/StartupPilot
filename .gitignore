@@ -19,3 +19,5 @@ env/
 
 # Dữ liệu vector DB cục bộ
 data/vector_db/
+data/database.sqlite*
+
