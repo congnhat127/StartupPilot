@@ -1,107 +1,85 @@
 import re
+import hashlib
 
 class TextChunker:
     """
-    Lớp xử lý việc phân mảnh (chunking) văn bản với các chiến lược khác nhau.
+    Lớp xử lý việc phân mảnh (chunking) văn bản.
+    Đã được nâng cấp lên Semantic Chunking (Cắt theo Ngữ nghĩa Pháp luật Việt Nam).
+    Tôn trọng ranh giới Điều, Khoản, Điểm thay vì cắt bừa bãi theo số ký tự.
     """
-    
-    @staticmethod
-    def chunk_by_fixed_size(text: str, chunk_size: int = 800, chunk_overlap: int = 150) -> list[str]:
-        """
-        Chia nhỏ văn bản theo độ dài ký tự cố định, có gối đầu (overlap) để giữ ngữ cảnh.
-        
-        Parameters:
-        - text (str): Văn bản thô cần chia nhỏ.
-        - chunk_size (int): Độ dài ký tự tối đa của một chunk.
-        - chunk_overlap (int): Số ký tự gối đầu giữa các chunk liền kề.
-        
-        Returns:
-        - list[str]: Danh sách các đoạn văn bản sau khi chia.
-        """
-        if not text:
-            return []
-            
-        chunks = []
-        start = 0
-        text_len = len(text)
-        
-        # Nếu văn bản ngắn hơn kích thước chunk, trả về chính nó
-        if text_len <= chunk_size:
-            return [text]
-            
-        while start < text_len:
-            end = start + chunk_size
-            chunk = text[start:end]
-            chunks.append(chunk)
-            
-            # Dịch chuyển con trỏ đọc cho chunk tiếp theo
-            start += (chunk_size - chunk_overlap)
-            
-            # Ngăn vòng lặp vô hạn nếu overlap lớn hơn hoặc bằng chunk_size
-            if chunk_size <= chunk_overlap:
-                break
-                
-        return chunks
 
     @staticmethod
-    def chunk_by_sentences(text: str, max_chunk_size: int = 800, chunk_overlap: int = 150) -> list[str]:
+    def chunk_parent_child(text: str, parent_max_len: int = 1500, child_max_len: int = 250) -> list[dict]:
         """
-        Chia nhỏ văn bản theo đơn vị câu (dựa trên dấu chấm, hỏi, cảm thán),
-        đảm bảo không cắt đôi câu ở giữa chừng và gộp các câu lại thành chunk tối đa max_chunk_size.
+        Chia văn bản luật theo cấu trúc Ngữ nghĩa (Semantic Chunking).
+        - Chunk cha (Parent): Toàn bộ 1 'Điều' (Article).
+        - Chunk con (Child): Từng 'Khoản' (Clause) bên trong Điều đó.
+                             Child sẽ được đính kèm Tiêu đề Điều để giữ trọn ngữ cảnh.
         """
         if not text:
             return []
             
-        # Tách văn bản thành danh sách các câu
-        # regex này tìm các dấu kết thúc câu và giữ lại dấu đó
-        sentences = re.split(r'(?<=[.!?])\s+', text)
+        results = []
         
-        chunks = []
-        current_chunk = []
-        current_length = 0
+        # Tách văn bản theo các Điều (Dấu hiệu: bắt đầu bằng "Điều X.")
+        # Dùng lookahead (?=...) để giữ lại chữ "Điều" trong kết quả cắt
+        articles = re.split(r'(?=(?:^|\n)Điều \d+\.)', text)
         
-        for sentence in sentences:
-            sentence_len = len(sentence)
-            # Nếu câu đơn quá dài vượt max_chunk_size, ta bắt buộc phải cắt câu đó theo ký tự
-            if sentence_len > max_chunk_size:
-                if current_chunk:
-                    chunks.append(" ".join(current_chunk))
-                    current_chunk = []
-                    current_length = 0
-                # Chia nhỏ câu siêu dài này bằng phương pháp ký tự
-                sub_chunks = TextChunker.chunk_by_fixed_size(sentence, max_chunk_size, chunk_overlap)
-                chunks.extend(sub_chunks)
+        # Biến lưu trữ ngữ cảnh Chương/Mục trước đó (nếu có)
+        current_chapter_context = ""
+        
+        for article in articles:
+            article = article.strip()
+            if not article:
                 continue
                 
-            if current_length + sentence_len + 1 > max_chunk_size:
-                # Lưu chunk hiện tại
-                chunks.append(" ".join(current_chunk))
-                # Khởi tạo chunk mới và giữ lại một phần câu cũ làm overlap (nếu có thể)
-                # Đơn giản nhất là gối đầu câu cuối cùng của chunk trước sang chunk sau
-                if current_chunk:
-                    current_chunk = [current_chunk[-1], sentence]
-                    current_length = len(current_chunk[0]) + len(sentence) + 1
-                else:
-                    current_chunk = [sentence]
-                    current_length = sentence_len
-            else:
-                current_chunk.append(sentence)
-                current_length += sentence_len + (1 if current_length > 0 else 0)
+            # Nếu đoạn này KHÔNG bắt đầu bằng "Điều" (Ví dụ: Lời mở đầu, Căn cứ ban hành...)
+            # Ta sẽ BỎ QUA hoàn toàn để tránh làm nhiễu dữ liệu RAG.
+            if not re.match(r'^Điều \d+\.', article):
+                continue
+
                 
-        if current_chunk:
-            chunks.append(" ".join(current_chunk))
+            # TỚI ĐÂY: Chắc chắn là một "Điều" luật chuẩn
+            parent_text = article
+            parent_id = f"parent_{hashlib.md5(parent_text.encode('utf-8')).hexdigest()[:8]}"
             
-        return chunks
-        
-    @staticmethod
-    def chunk_by_paragraphs(text: str) -> list[str]:
-        """
-        Chia nhỏ văn bản theo các đoạn văn (phân tách bởi ký tự xuống dòng kép \n\n).
-        Phù hợp với tài liệu có cấu trúc ý rõ ràng theo từng đoạn.
-        """
-        if not text:
-            return []
-        # Tách theo 2 hoặc nhiều dấu xuống dòng
-        paragraphs = re.split(r'\n\s*\n', text)
-        # Lọc bỏ các đoạn trống
-        return [p.strip() for p in paragraphs if p.strip()]
+            # Trích xuất riêng Tiêu đề Điều (Dòng đầu tiên)
+            lines = article.split('\n', 1)
+            article_title = lines[0].strip()
+            
+            # Nếu Điều này có nội dung bên dưới
+            if len(lines) > 1:
+                body = lines[1]
+                # Tách nội dung theo Khoản (Dấu hiệu: bắt đầu bằng số và dấu chấm "1. ", "2. ")
+                clauses = re.split(r'(?=(?:^|\n)\d+\.\s)', body)
+            else:
+                clauses = []
+                
+            # Trường hợp 1: Điều rất ngắn, không chia Khoản (Ví dụ: Điều khoản thi hành)
+            if not clauses:
+                results.append({
+                    "child_id": f"{parent_id}_child_0",
+                    "child_text": article_title,
+                    "parent_id": parent_id,
+                    "parent_text": parent_text
+                })
+                continue
+                
+            # Trường hợp 2: Điều có nhiều Khoản
+            for c_idx, clause in enumerate(clauses):
+                clause = clause.strip()
+                if not clause:
+                    continue
+                    
+                # GẮN TIÊU ĐỀ ĐIỀU VÀO TRƯỚC KHOẢN ĐỂ TẠO CHILD TEXT MANG ĐỦ NGỮ CẢNH
+                # Ví dụ Child Text: "Điều 2. Người nộp thuế\n1. Người nộp thuế thu nhập cá nhân là..."
+                child_text = f"{article_title}\n{clause}"
+                
+                results.append({
+                    "child_id": f"{parent_id}_child_{c_idx}",
+                    "child_text": child_text,
+                    "parent_id": parent_id,
+                    "parent_text": parent_text
+                })
+                
+        return results

@@ -70,10 +70,14 @@ def get_embedding_with_cache(text: str) -> list[float]:
     row = cursor.fetchone()
     if row:
         return json.loads(row[0])
+    import time
     
-    # 2. Nếu không có, gọi API Gemini (dùng model text-embedding-004 mới nhất)
+    # Nghỉ 1 giây để tránh lỗi 429 Quota Exceeded (Giới hạn 100 request/phút của bản Free)
+    time.sleep(1)
+    
+    # 2. Nếu không có, gọi API Gemini
     response = client.models.embed_content(
-        model="text-embedding-004",
+        model="gemini-embedding-2",
         contents=text
     )
     embedding = response.embeddings[0].values
