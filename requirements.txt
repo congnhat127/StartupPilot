@@ -14,3 +14,13 @@ chromadb>=0.5.0
 requests>=2.31.0
 pandas>=2.2.0
 openpyxl>=3.1.0
+
+# Keyword Search (Hybrid RAG)
+rank_bm25>=0.2.2
+
+# Backend Framework (Async)
+fastapi>=0.111.0
+uvicorn>=0.30.0
+
+# Document Parsing
+python-docx>=1.1.0
